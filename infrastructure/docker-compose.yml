@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: medtrace_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - medtrace_network
+    restart: unless-stopped
+    user: "1000"
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: medtrace_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      - QDRANT_URL=http://vector_db:6333
+      - WEB_CONCURRENCY=1
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+      vector_db:
+        condition: service_started
+    networks:
+      - medtrace_network
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    user: "1000"
+
+  postgres_db:
+    image: postgres:15-alpine
+    container_name: medtrace_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - medtrace_network
+    restart: unless-stopped
+    user: postgres
+
+  vector_db:
+    image: qdrant/qdrant:latest
+    container_name: medtrace_qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - medtrace_network
+    restart: unless-stopped
+
+networks:
+  medtrace_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  qdrant_data:
